@@ -1,4 +1,4 @@
-# luoyang
+# vue_shop
 
 ## Project setup
 ```

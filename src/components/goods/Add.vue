@@ -10,8 +10,7 @@
     <!-- 卡片视图 -->
     <el-card>
       <!-- 提示区域 -->
-      <el-alert title="添加商品信息" type="info" center show-icon :closable="false">
-      </el-alert>
+      <el-alert title="添加商品信息" type="info" center show-icon :closable="false"></el-alert>
       <!-- 步骤条区域 -->
       <el-steps :space="200" :active="activeIndex - 0" finish-status="success" align-center>
         <el-step title="基本信息"></el-step>
@@ -24,9 +23,29 @@
 
       <!-- tab栏区域 -->
 
-      <el-form :model="addForm" :rules="addFormRules" ref="addFormRef" label-width="100px" label-position="top">
-        <el-tabs v-model="activeIndex" :tab-position="'left'" :before-leave="beforeTabLeave" @tab-click="tabClicked">
+      <el-form
+        :model="addForm"
+        :rules="addFormRules"
+        ref="addFormRef"
+        label-width="100px"
+        label-position="top"
+      >
+        <el-tabs
+          v-model="activeIndex"
+          :tab-position="'left'"
+          :before-leave="beforeTabLeave"
+          @tab-click="tabClicked"
+        >
           <el-tab-pane label="基本信息" name="0">
+            <el-form-item label="商品分类" prop="goods_cat">
+              <el-cascader
+                expand-trigger="hover"
+                :options="catelist"
+                :props="cateProps"
+                v-model="addForm.goods_cat"
+                @change="handleChange"
+              ></el-cascader>
+            </el-form-item>
             <el-form-item label="商品名称" prop="goods_name">
               <el-input v-model="addForm.goods_name"></el-input>
             </el-form-item>
@@ -38,10 +57,6 @@
             </el-form-item>
             <el-form-item label="商品数量" prop="goods_number">
               <el-input v-model="addForm.goods_number" type="number"></el-input>
-            </el-form-item>
-            <el-form-item label="商品分类" prop="goods_cat">
-              <el-cascader expand-trigger="hover" :options="catelist" :props="cateProps" v-model="addForm.goods_cat" @change="handleChange">
-              </el-cascader>
             </el-form-item>
           </el-tab-pane>
           <el-tab-pane label="商品参数" name="1">
@@ -58,16 +73,38 @@
               <el-input v-model="item.attr_vals"></el-input>
             </el-form-item>
           </el-tab-pane>
-          <el-tab-pane label="商品图片" name="3">商品图片</el-tab-pane>
-          <el-tab-pane label="商品内容" name="4">商品内容</el-tab-pane>
+          <el-tab-pane label="商品图片" name="3">
+            <el-upload
+              :action="uploadUrl"
+              :on-preview="handlePreview"
+              :on-remove="handleRemove"
+              list-type="picture"
+              :headers="headersObj"
+              :on-success="headersSuccess"
+            >
+              <el-button size="small" type="primary">点击上传</el-button>
+            </el-upload>
+          </el-tab-pane>
+          <el-tab-pane label="商品内容" name="4">
+            <!-- 富文本编辑器 -->
+            <quill-editor v-model="addForm.goods_introduce"></quill-editor>
+            <!-- 添加商品按钮 -->
+            <el-button type="primary" class="add" @click="add">添加商品</el-button>
+          </el-tab-pane>
         </el-tabs>
       </el-form>
-
     </el-card>
+
+    <!-- 图片对话框 -->
+    <el-dialog title="图片预览" :visible.sync="previewDialogVisible" width="50%">
+      <img :src="previewPath" class="pho" />
+      <span slot="footer" class="dialog-footer"></span>
+    </el-dialog>
   </div>
 </template>
 
 <script>
+import _ from 'lodash'
 export default {
   data() {
     return {
@@ -79,7 +116,11 @@ export default {
         goods_weight: 0,
         goods_number: 0,
         // 商品所属的分类数组
-        goods_cat: []
+        goods_cat: [],
+        pics: [],
+        // 商品详情
+        goods_introduce: '',
+        attrs: []
       },
       addFormRules: {
         goods_name: [
@@ -108,7 +149,14 @@ export default {
       // 动态参数列表数据
       manyTableData: [],
       // 静态属性列表数据
-      onlyTableData: []
+      onlyTableData: [],
+      uploadUrl: 'http://127.0.0.1:8888/api/private/v1/upload',
+      headersObj: {
+        Authorization: window.sessionStorage.getItem('token')
+      },
+      // 图片预览
+      previewPath: '',
+      previewDialogVisible: false
     }
   },
   created() {
@@ -178,6 +226,65 @@ export default {
         console.log(res.data)
         this.onlyTableData = res.data
       }
+    },
+    // 图片
+    handlePreview(file) {
+      console.log(file)
+      this.previewPath = file.response.data.url
+      this.previewDialogVisible = true
+    },
+    // 图片移除
+    handleRemove(file) {
+      console.log(file)
+      // 获取删除图片的路径
+      const filePath = file.response.data.tmp_path
+      // 找到图片的索引值
+      const i = this.addForm.pics.findIndex(x => x.pic === filePath)
+      // 删除
+      this.addForm.pics.splice(i, 1)
+      console.log(this.addForm)
+    },
+    // 监听图片上传成功事件
+    headersSuccess(response) {
+      console.log(response)
+      const picInfo = { pic: response.data.tmp_path }
+      this.addForm.pics.push(picInfo)
+      console.log(this.addForm)
+    },
+    // 添加商品按钮
+    add() {
+      this.$refs.addFormRef.validate(async valid => {
+        if (!valid) {
+          return this.$message.error('请填写必要的表单项')
+        }
+        // 执行添加的业务逻辑
+        // 克隆
+        const from = _.cloneDeep(this.addForm)
+        from.goods_cat = from.goods_cat.join(',')
+        // 动态属性
+        this.manyTableData.forEach(item => {
+          const newInfo = {
+            attr_id: item.attr_id,
+            attr_value: item.attr_vals.join(',')
+          }
+          this.addForm.attrs.push(newInfo)
+        })
+        // 静态属性
+        this.onlyTableData.forEach(item => {
+          const newInfo = { attr_id: item.attr_id, attr_value: item.attr_vals }
+          this.addForm.attrs.push(newInfo)
+        })
+        from.attrs = this.addForm.attrs 
+        console.log(from)
+        // 发起请求添加商品
+      const {data : res} = await this.$http.post('goods',from)
+      if(res.meta.status !==201){
+        return this.$message.error('创建商品失败')
+      }
+      this.$message.success('创建商品成功')
+      this.$router.push('/goods')
+
+      })
     }
   },
   computed: {
@@ -195,4 +302,11 @@ export default {
 .el-checkbox {
   margin: 0 10px 0 0 !important;
 }
+.pho {
+  width: 100%;
+}
+.add{
+  margin-top: 20px;
+}
+
 </style>
